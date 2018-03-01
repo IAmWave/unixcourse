@@ -1,0 +1,4 @@
+#!/bin/bash
+fpc program.pas
+./program | grep '^[0-9 ]*$' | head -n5
+rm program program.o
