@@ -1,0 +1,54 @@
+#!/bin/bash
+# Testováno na https://en.wikipedia.org/wiki/Bee_hummingbird
+# a https://en.wikipedia.org/wiki/Major_seventh_chord (s přidáním .mid)
+
+show_help() {
+    echo "getmedia najde a vypíše v HTML souboru odkazy na obrázky a zvuky."
+    echo "Usage: getmedia [-i] [-s] [FILE]"
+    echo "  -s  pouze zvuky (.jpg, .png, .svg)."
+    echo "  -t  pouze obrázky (.wav, .mp3, .ogg)."
+}
+
+if [ $# -gt 2 ] || [ $# -lt 1 ]; then
+    echo "Nesprávný počet parametrů."
+    show_help
+    exit 1
+fi
+
+if [ $1 == '--help' ]; then
+    show_help
+    exit 0
+fi
+
+sounds=1
+images=1
+
+if [ $1 == '-s' ]; then
+    images=0
+    shift
+elif [ $1 == '-t' ]; then
+    sounds=0
+    shift
+fi
+
+if [ $# == 0 ]; then
+    echo "Chybí název souboru."
+    exit 1
+fi
+
+sufs=""
+if [ "$images" -eq "1" ]; then
+    sufs="$sufs \.jpg \.png \.svg"
+fi
+if [ "$sounds" -eq "1" ]; then
+    sufs="$sufs \.wav \.mp3 \.ogg"
+fi
+
+for suf in $sufs; do
+    pat='<a.*?href="[^"]*?'$suf'".*?>'
+    grep -oP $pat $1 \
+    | sed -r 's/.*href="(.*)/\1/; s/".*//'
+done
+
+
+
