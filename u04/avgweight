@@ -1,0 +1,19 @@
+#!/bin/bash
+wi=11 # index of weight
+lines=$(cat $1)
+
+get_avg_weight() {
+    tot=0
+    n=0
+    while read line; do
+        w=$(echo $line | grep -oP '^[0-9]*')
+        if [ -z $w ]; then
+            continue
+        fi
+        ((n++))
+        ((tot+=w))
+    done
+    echo $(($tot/n))
+}
+
+cut -f $wi -d ';' $1 | tail -n +2 | get_avg_weight

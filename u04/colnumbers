@@ -1,0 +1,7 @@
+#!/bin/bash
+row=$(echo $(head -1 $1) | tr ';' ' ')
+cnt=1
+for x in $row; do
+    echo -e "$cnt\t$x"
+    cnt=$(($cnt+1))
+done
