@@ -1,0 +1,11 @@
+#!/bin/bash
+if [ $# != 1 ]; then
+    echo "Expected 1 argument: path to the data file"
+fi
+
+add_lengths() {
+    while read line; do
+        printf "%03d\t%s\n" ${#line} "$line"
+    done
+}
+cut -f 1 $1 | add_lengths | sort | cut -f 2
