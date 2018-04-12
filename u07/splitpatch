@@ -1,0 +1,26 @@
+#!/bin/bash
+
+usage() {
+    echo "Usage: splitpatch INPUT_FILE OUTPUT_DIR"
+}
+
+if [[ $# != 2 ]]; then
+    usage
+    exit 1
+fi
+
+input_file=$1
+output_dir=$2
+
+td=$(mktemp -d)
+trap "rm -r $td" EXIT
+
+csplit --silent --elide-empty-files --prefix "$td/" \
+"$input_file" '/diff \-\-git.*/' '{*}'
+
+for f_from in $td/*; do
+    # Assume diff'd filenames do not contain spaces; if you use spaces in your filenames,
+    # you do not deserve to use this script :^)
+    f_to=$(head -1 $f_from | cut -d " " -f 3 | cut -b 3- | tr '/' '-').patch
+    mv $f_from $output_dir/$f_to
+done
