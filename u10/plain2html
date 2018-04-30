@@ -1,0 +1,29 @@
+#!/bin/sed -nf
+# 3 s/to/from/
+# s/^$/\n/
+# /^$/,/^$/ s/./#/g
+# /^$/
+# s/\n//
+
+# Adapted from http://www.grymoire.com/Unix/Sed.html#uh-58
+
+/^$/ b para # End of line: check paragraph
+H           # Else add it to the hold buffer
+$ b para    # at end of file, check paragraph
+b           # now branch to end of script
+:para       # this is where a paragraph is checked for the pattern
+x           # return the entire paragraph into the pattern space
+# Process paragraph
+s/^\n//     # Delete leading newlines
+s/\n/ /     # Convert newlines into spaces
+s/_\(.*\)_/<emph>\1<\/emph>/    # Emphasis
+/^#/ b header
+b notheader
+:header
+s/# *\(.*\)/<h1>\1<\/h1>/   # Remove leading "# " before surrounding with <h1>
+b endif
+:notheader
+s/\(.*\)/<p>\1<\/p>/
+:endif
+s/<p><\/p>//            # Clear empty paragraphs
+/..*/ p                 # Only print if nonempty
