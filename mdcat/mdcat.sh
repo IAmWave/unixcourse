@@ -46,20 +46,24 @@ is_list_item() {
 }
 
 font_styles() {
-    # Process font styles (bold, italics, code) in a line.
+    # Process font styles (bold, italics, code) in a line or paragraph.
     para=$1
-    # echo $para | sed 's/\*\*\([^\*]*\)\*\*/'${bold}${under}'\1'$normal'/g'
-    lines=$(echo "$para" | sed '
-    s/\(*\|_\|`\)/\n\1\n/g     # Split paragraph into lines, where "keywords" are on separate lines
-    ')
+    lines=$(echo "$para" |
+        sed 's/\(*\|_\|`\)/'$'\e''\1'$'\e''/g' | # Split paragraph into \e-delimited tokens
+        tr '\n' '\t')   # Use \t instead of \n so that we can use a single `read`
+                        # if the input is multi-line
 
     # Which styles are active?
     bold=0
     italics=0
     code=0
 
+    # Read the \e-delimited string into array `tokens`
+    IFS=$'\e' read -a tokens <<< "${lines}"
     res=""
-    while IFS= read line; do # Clear IFS so that `read` doesn't trim whitespace
+    for line in "${tokens[@]}"; do
+        line=$(echo "$line" | tr '\t' '\n') # Put \n's back
+
         if [[ -z "$line" ]]; then
             : # Skip empty Lines
         elif [[ "$line" = '*' ]]; then
@@ -74,7 +78,7 @@ font_styles() {
             if [[ "$code" = 1 ]]; then res+=$(printf "${s_code}"); fi
             if [[ "$bold" = 1 ]];    then res+=$(printf "${s_bold}"); fi
             if [[ "$italics" = 1 ]]; then res+=$(printf "${s_italics}"); fi
-            res+=$(printf -- "${line}") # -- so that there is no formatting
+            res+=$(printf -- "${line}") # '--' so that there is no formatting
         fi
     done <<< "$lines"
 
@@ -82,12 +86,15 @@ font_styles() {
 }
 
 process_paragraph() {
-    para=$1
-    para=$(trim "$para")
+    para=$(trim "$1")
+    para=$(echo "$para" |
+        sed 's/  */ /g' | # Join consecutive spaces into one
+        fmt               # Limit to 80 characters per line.
+    )
+    # Note that `fmt` must be ran before `font_styles` because the latter
+    # inserts formatting characters which are not printed but `fmt` includes
+    # them anyway, resulting in extremely short lines
     para=$(font_styles "$para")
-    para=$(echo "$para" | sed '
-    s/  */ /g # Join consecutive spaces into one
-    ')
     echo "$para"
 }
 
@@ -122,7 +129,9 @@ process_list() {
         indents+=($indent)
         stack_size="${#indents[@]}"
         indent_level=$((1 + (stack_size - 2) * 4))
-        processed_line=$(echo "${line}" | sed 's/^\( *\)-/\1•/') # Bullets instead of '-'s
+        # Bullets instead of '-'s; limit line length
+        # TODO: Indent next lines to match the first
+        processed_line=$(echo "${line}" | sed 's/^\( *\)-/\1•/' | fmt)
         processed_line=$(process_paragraph "${processed_line}")
         echo "$(repeat_char ' ' $indent_level )${processed_line}"
     done <<< "$list"
@@ -135,8 +144,9 @@ process_block() {
     if [[ -z $(trim "$block") ]]; then # Skip empty blocks
         return
     fi
-    # Use a single * for bold and a single _ for italics
-    block=$(echo "$block" | sed 's/*/_/g; s/__/*/g')
+    # Standardize: use a single * for bold and a single _ for italics, spaces not tabs
+    block=$(echo "$block" | sed 's/*/_/g; s/__/*/g; s/\t/    /g')
+
     if [[ "$block_type" = "LIST" ]]; then
         block=$(process_list "$block")
     elif [[ "$block_type" = "HEADER" ]]; then
