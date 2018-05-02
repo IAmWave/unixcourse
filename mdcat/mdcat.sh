@@ -18,6 +18,17 @@ repeat_char() {
     printf "$c%.0s" $(seq 1 $2)
 }
 
+header_level() {
+    # Print the level of the header on this line.
+    for i in {6..1}; do
+        if echo "$1" | grep -q $(repeat_char '#' $i); then
+            echo $i
+            return
+        fi
+    done
+    echo 0
+}
+
 font_styles() {
     # Process font styles (bold, italics, code) in a line.
     para=$1
@@ -62,13 +73,7 @@ headers() {
     # Headers are formatted as ==== text ====, where the number of '='s
     # DECREASES with the importance of the header (this is in contrast
     # to Markdown but seems more intuitive).
-    level=0
-    for i in {6..1}; do
-        if echo "$1" | grep -q $(repeat_char '#' $i); then
-            level=$i
-            break
-        fi
-    done
+    level=$(header_level "$1")
 
     if [[ $level != 0 ]]; then
         decoration="${s_bold}"$(repeat_char '=' $((7-level)))"${s_reset}"
@@ -79,10 +84,10 @@ headers() {
     fi
 }
 
-paragraph() {
-    # Process the whole paragraph.
+process_block() {
+    # Process the whole block
     para=$(trim "$1")
-    if [[ -z $para ]]; then # Skip empty paragraphs
+    if [[ -z $para ]]; then # Skip empty blocks
         return
     fi
     # Use a single * for bold and a single _ for italics
@@ -94,14 +99,26 @@ paragraph() {
     echo ""
 }
 
+block_type="PARAGRAPH" # paragraph/header
 cur=""
 while read line; do
-    if [[ -n "$line" ]]; then # Not an empty line
-        cur="${cur} ${line}"
-    else
-        paragraph "$cur"
+    if [[ -z "$line" ]]; then # Empty line
+        process_block "$cur"
         cur=""
+        block_type="PARAGRAPH"
+    elif [[ $(header_level "$line") != 0 ]]; then # Header
+        process_block "$cur"
+        cur="${line}"
+        block_type="HEADER"
+    else # Not an empty line - paragraph
+        # Divide between types
+        if [[ "$block_type" != "PARAGRAPH" ]]; then
+            process_block "$cur"
+            cur=""
+        fi
+        cur="${cur} ${line}"
+        block_type="PARAGRAPH"
     fi
 done
 
-paragraph "$cur"
+process_block "$cur"
