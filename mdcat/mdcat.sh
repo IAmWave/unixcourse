@@ -15,10 +15,13 @@ repeat_char() {
     # Given a char c and number n, returns the string ccccccc (c repeated n times)
     c=$1
     n=$2
+    if [[ "$n" -le 0 ]]; then
+        return
+    fi
     printf "$c%.0s" $(seq 1 $2)
 }
 
-header_level() {
+get_header_level() {
     # Print the level of the header on this line.
     for i in {6..1}; do
         if echo "$1" | grep -q $(repeat_char '#' $i); then
@@ -29,12 +32,24 @@ header_level() {
     echo 0
 }
 
+count_leading_chars() {
+    # Given a string s and a character c, print how many occurrences
+    # of c there are at the beginning of s
+    echo "$1" | awk -F'[^'"$2"']' '{print length($1)}'
+}
+
+is_list_item() {
+    # Return 0 if the given line is a list item,
+    # that is, it starts with '- ' (+ possibly leading whitespace)
+    echo "$1" | grep -qP "^\s*\- "
+    return $?
+}
+
 font_styles() {
     # Process font styles (bold, italics, code) in a line.
     para=$1
     # echo $para | sed 's/\*\*\([^\*]*\)\*\*/'${bold}${under}'\1'$normal'/g'
     lines=$(echo "$para" | sed '
-    # s/*/_/g; s/__/*/g       # Use a single * for bold and a single _ for italics
     s/\(*\|_\|`\)/\n\1\n/g     # Split paragraph into lines, where "keywords" are on separate lines
     ')
 
@@ -59,66 +74,112 @@ font_styles() {
             if [[ "$code" = 1 ]]; then res+=$(printf "${s_code}"); fi
             if [[ "$bold" = 1 ]];    then res+=$(printf "${s_bold}"); fi
             if [[ "$italics" = 1 ]]; then res+=$(printf "${s_italics}"); fi
-            
-            res+=$(printf "${line}")
-
+            res+=$(printf -- "${line}") # -- so that there is no formatting
         fi
     done <<< "$lines"
 
-    echo "$res"
+    echo "$res${s_reset}"
 }
 
-headers() {
+process_paragraph() {
+    para=$1
+    para=$(trim "$para")
+    para=$(font_styles "$para")
+    para=$(echo "$para" | sed '
+    s/  */ /g # Join consecutive spaces into one
+    ')
+    echo "$para"
+}
+
+process_header() {
     # Format headers, that is, lines beginning with some number of '#'s.
     # Headers are formatted as ==== text ====, where the number of '='s
     # DECREASES with the importance of the header (this is in contrast
     # to Markdown but seems more intuitive).
-    level=$(header_level "$1")
+    level=$(get_header_level "$1")
+    header=$(trim "$1")
 
     if [[ $level != 0 ]]; then
         decoration="${s_bold}"$(repeat_char '=' $((7-level)))"${s_reset}"
-        trimmed=$(echo "$1" | sed 's/^#* *//g')
+        trimmed=$(echo "$header" | sed 's/^#* *//g')
         echo "$decoration $trimmed $decoration"
     else
         echo "$1"
     fi
 }
 
+process_list() {
+    # Format lists. Indent levels are standardized, the only thing that matters
+    # is their relative size.
+    list="$1"
+    indents=(-1) # Dummy negative indentation to avoid an empty stack
+    while IFS= read line; do
+        indent=$(count_leading_chars "$line" " ")
+        # We keep a stack of indent sizes and pop it so that it is strictly increasing
+        while [[ "$indent" -le "${indents[-1]}" ]]; do
+            indents=("${indents[@]::${#indents[@]}-1}")
+        done
+        indents+=($indent)
+        stack_size="${#indents[@]}"
+        indent_level=$((1 + (stack_size - 2) * 4))
+        processed_line=$(echo "${line}" | sed 's/^\( *\)-/\1•/') # Bullets instead of '-'s
+        processed_line=$(process_paragraph "${processed_line}")
+        echo "$(repeat_char ' ' $indent_level )${processed_line}"
+    done <<< "$list"
+}
+
 process_block() {
-    # Process the whole block
-    para=$(trim "$1")
-    if [[ -z $para ]]; then # Skip empty blocks
+    # Process one whole block: a PARAGRAPH/HEADER/LIST
+    block="$1"
+    block_type="$2"
+    if [[ -z $(trim "$block") ]]; then # Skip empty blocks
         return
     fi
     # Use a single * for bold and a single _ for italics
-    para=$(echo "$para" | sed 's/*/_/g; s/__/*/g')
+    block=$(echo "$block" | sed 's/*/_/g; s/__/*/g')
+    if [[ "$block_type" = "LIST" ]]; then
+        block=$(process_list "$block")
+    elif [[ "$block_type" = "HEADER" ]]; then
+        block=$(process_header "$block")
+    elif [[ "$block_type" = "PARAGRAPH" ]]; then
+        block=$(process_paragraph "$block")
+    fi
 
-    para=$(headers "$para")
-    para=$(font_styles "$para")
-    echo "$para"
+    echo "$block"
     echo ""
 }
 
-block_type="PARAGRAPH" # paragraph/header
+block_type="PARAGRAPH" # PARAGRAPH/HEADER/LIST
 cur=""
-while read line; do
+while IFS= read line; do # Do not trim whitespace
     if [[ -z "$line" ]]; then # Empty line
-        process_block "$cur"
+        process_block "$cur" "$block_type"
         cur=""
         block_type="PARAGRAPH"
-    elif [[ $(header_level "$line") != 0 ]]; then # Header
-        process_block "$cur"
+    elif [[ $(get_header_level "$line") != 0 ]]; then # Header
+        # Flush `cur`; headers are one-line only.
+        process_block "$cur" "$block_type"
         cur="${line}"
         block_type="HEADER"
-    else # Not an empty line - paragraph
-        # Divide between types
-        if [[ "$block_type" != "PARAGRAPH" ]]; then
-            process_block "$cur"
-            cur=""
+    elif is_list_item "$line"; then # List item
+        if [[ "$block_type" != "LIST" ]]; then # There may be a paragraph block before a list
+            process_block "$cur" "$block_type"
+            cur="${line}"
+            block_type="LIST"
+        else
+            cur="${cur}"$'\n'"${line}"
         fi
-        cur="${cur} ${line}"
-        block_type="PARAGRAPH"
+    else # None of the above
+        if [[ "$block_type" = "LIST" ]]; then # Continuation of a list item on another line
+            cur="${cur} ${line}"
+        elif [[ "$block_type" != "PARAGRAPH" ]]; then # Divide between types; flush
+            process_block "$cur" "$block_type"
+            cur="${line}"
+            block_type="PARAGRAPH"
+        else # Continuation of a paragraph
+            cur="${cur} ${line}"
+        fi
     fi
 done
 
-process_block "$cur"
+process_block "$cur" "$block_type"
