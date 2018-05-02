@@ -5,6 +5,8 @@ Je vhodný, když se chceme rychle podívat na nějaký Markdownový soubor v
 čitelné podobě a nechce se nám kvůli tomu otevírat prohlížeč.
 
 ## Funkce
+Zalamování dlouhých řádků (viz první odstavec)
+
 Formátování *kurzívy (jako podtržení)*, **tučného písma** a `inline kódu`
 
 ### Šest

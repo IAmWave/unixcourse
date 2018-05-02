@@ -62,8 +62,6 @@ font_styles() {
     IFS=$'\e' read -a tokens <<< "${lines}"
     res=""
     for line in "${tokens[@]}"; do
-        line=$(echo "$line" | tr '\t' '\n') # Put \n's back
-
         if [[ -z "$line" ]]; then
             : # Skip empty Lines
         elif [[ "$line" = '*' ]]; then
@@ -73,15 +71,15 @@ font_styles() {
         elif [[ "$line" = '`' ]]; then
             (( code = 1 - code ))
         else
-            res+=$(printf "${s_reset}")
+            res+=$(printf -- "${s_reset}")
             # Todo: do not highlight in inline code blocks
             if [[ "$code" = 1 ]]; then res+=$(printf "${s_code}"); fi
             if [[ "$bold" = 1 ]];    then res+=$(printf "${s_bold}"); fi
             if [[ "$italics" = 1 ]]; then res+=$(printf "${s_italics}"); fi
             res+=$(printf -- "${line}") # '--' so that there is no formatting
         fi
-    done <<< "$lines"
-
+    done
+    res=$(echo "$res" | tr '\t' '\n') # Put newlines back
     echo "$res${s_reset}"
 }
 
