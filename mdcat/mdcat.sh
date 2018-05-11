@@ -40,8 +40,8 @@ count_leading_chars() {
 
 is_list_item() {
     # Return 0 if the given line is a list item,
-    # that is, it starts with '- ' (+ possibly leading whitespace)
-    echo "$1" | grep -qP "^\s*\- "
+    # that is, it starts with '- ' or '* ' (+ possibly leading whitespace)
+    echo "$1" | grep -qP "^\s*[\-*] "
     return $?
 }
 
@@ -71,12 +71,12 @@ font_styles() {
         elif [[ "$line" = '`' ]]; then
             (( code = 1 - code ))
         else
-            res+=$(printf -- "${s_reset}")
+            res+=$(printf '%s' "${s_reset}")
             # Todo: do not highlight in inline code blocks
-            if [[ "$code" = 1 ]]; then res+=$(printf "${s_code}"); fi
-            if [[ "$bold" = 1 ]];    then res+=$(printf "${s_bold}"); fi
-            if [[ "$italics" = 1 ]]; then res+=$(printf "${s_italics}"); fi
-            res+=$(printf -- "${line}") # '--' so that there is no formatting
+            if [[ "$code" = 1 ]]; then res+=$(printf '%s' "${s_code}"); fi
+            if [[ "$bold" = 1 ]];    then res+=$(printf '%s' "${s_bold}"); fi
+            if [[ "$italics" = 1 ]]; then res+=$(printf '%s' "${s_italics}"); fi
+            res+=$(printf '%s' "${line}")
         fi
     done
     res=$(echo "$res" | tr '\t' '\n') # Put newlines back
@@ -127,9 +127,8 @@ process_list() {
         indents+=($indent)
         stack_size="${#indents[@]}"
         indent_level=$((1 + (stack_size - 2) * 4))
-        # Bullets instead of '-'s; limit line length
-        # TODO: Indent next lines to match the first
-        processed_line=$(echo "${line}" | sed 's/^\( *\)-/\1•/' | fmt)
+        # Bullets instead of '-' or '*' (which would become _ by now); limit line length
+        processed_line=$(echo "${line}" | sed 's/^\( *\)[-_]/\1•/' | fmt)
         processed_line=$(process_paragraph "${processed_line}")
         echo "$(repeat_char ' ' $indent_level )${processed_line}"
     done <<< "$list"
