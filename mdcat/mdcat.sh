@@ -4,7 +4,8 @@
 s_bold=$(tput bold)
 s_reset=$(tput sgr0)
 s_italics=$(tput smul)
-s_code=$(tput setaf 3)
+s_code=$(tput setaf 3) # Yellow
+s_link=$(tput setaf 6) # Cyan
 
 trim() {
     # Omit leading and trailing whitespace
@@ -56,7 +57,7 @@ font_styles() {
     # Process font styles (bold, italics, code) in a line or paragraph.
     para=$1
     lines=$(echo "$para" |
-        sed 's/\(*\|_\|`\)/'$'\e''\1'$'\e''/g' | # Split paragraph into \e-delimited tokens
+        sed 's/\(*\|_\|`\|\[\)/'$'\e''\1'$'\e''/g' | # Split paragraph into \e-delimited tokens
         tr '\n' '\t')   # Use \t instead of \n so that we can use a single `read`
                         # if the input is multi-line
 
@@ -64,6 +65,7 @@ font_styles() {
     bold=0
     italics=0
     code=0
+    link=0
 
     # Read the \e-delimited string into array `tokens`
     IFS=$'\e' read -a tokens <<< "${lines}"
@@ -77,12 +79,17 @@ font_styles() {
             (( italics = 1 - italics ))
         elif [[ "$line" = '`' ]]; then
             (( code = 1 - code ))
+        elif [[ "$line" = '[' ]]; then
+            (( link = 1 - link ))
         else
             res+=$(printf '%s' "${s_reset}")
-            # Todo: do not highlight in inline code blocks
-            if [[ "$code" = 1 ]]; then res+=$(printf '%s' "${s_code}"); fi
-            if [[ "$bold" = 1 ]];    then res+=$(printf '%s' "${s_bold}"); fi
-            if [[ "$italics" = 1 ]]; then res+=$(printf '%s' "${s_italics}"); fi
+            if [[ "$code" = 1 ]]; then # Code is not highlighted.
+                res+=$(printf '%s' "${s_code}");
+            else
+                if [[ "$link" = 1 ]]; then res+=$(printf '%s' "${s_link}"); fi
+                if [[ "$bold" = 1 ]];    then res+=$(printf '%s' "${s_bold}"); fi
+                if [[ "$italics" = 1 ]]; then res+=$(printf '%s' "${s_italics}"); fi
+            fi
             res+=$(printf '%s' "${line}")
         fi
     done
@@ -165,6 +172,7 @@ process_block() {
         block=$(echo "$block" | sed '
             s/*/_/g; s/__/*/g               # use a single * for bold and a single _ for italics
             s/\t/    /g                     # spaces, not tabs
+            s/\[\([^\[]*\)\]([^)]*)/\[\1\[/g    # Mark link text as [text[; remove link target
         ')
         if [[ "$block_type" = "LIST" ]]; then
             block=$(process_list "$block")
