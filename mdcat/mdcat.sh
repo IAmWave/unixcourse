@@ -45,6 +45,13 @@ is_list_item() {
     return $?
 }
 
+is_code_block_separator() {
+    # Return 0 if the given line is the start or end of a code block,
+    # that is, it starts with '```'
+    echo "$1" | grep -qP "^\`\`\`"
+    return $?
+}
+
 font_styles() {
     # Process font styles (bold, italics, code) in a line or paragraph.
     para=$1
@@ -134,35 +141,65 @@ process_list() {
     done <<< "$list"
 }
 
+process_code_block() {
+    # Format (or rather, don't reformat) code blocks
+    code=$(printf "%s" "$1" | tail -n +2) # Drop first line because we inserted an extra \n
+    printf '%s' "${s_code}"
+    printf "%s" "$code"
+    printf '%s' "${s_reset}"
+}
+
 process_block() {
     # Process one whole block: a PARAGRAPH/HEADER/LIST
     block="$1"
     block_type="$2"
+
     if [[ -z $(trim "$block") ]]; then # Skip empty blocks
         return
     fi
-    # Standardize: use a single * for bold and a single _ for italics, spaces not tabs
-    block=$(echo "$block" | sed 's/*/_/g; s/__/*/g; s/\t/    /g')
-
-    if [[ "$block_type" = "LIST" ]]; then
-        block=$(process_list "$block")
-    elif [[ "$block_type" = "HEADER" ]]; then
-        block=$(process_header "$block")
-    elif [[ "$block_type" = "PARAGRAPH" ]]; then
-        block=$(process_paragraph "$block")
+    #echo "$block_type"
+    if [[ "$block_type" = "CODE" ]]; then
+        block=$(process_code_block "$block")
+    else
+        # Standardize
+        block=$(echo "$block" | sed '
+            s/*/_/g; s/__/*/g               # use a single * for bold and a single _ for italics
+            s/\t/    /g                     # spaces, not tabs
+        ')
+        if [[ "$block_type" = "LIST" ]]; then
+            block=$(process_list "$block")
+        elif [[ "$block_type" = "HEADER" ]]; then
+            block=$(process_header "$block")
+        elif [[ "$block_type" = "PARAGRAPH" ]]; then
+            block=$(process_paragraph "$block")
+        fi
     fi
 
     echo "$block"
     echo ""
 }
 
-block_type="PARAGRAPH" # PARAGRAPH/HEADER/LIST
+block_type="PARAGRAPH" # PARAGRAPH/HEADER/LIST/CODE
 cur=""
 while IFS= read line; do # Do not trim whitespace
     if [[ -z "$line" ]]; then # Empty line
-        process_block "$cur" "$block_type"
-        cur=""
-        block_type="PARAGRAPH"
+        if [[ "$block_type" != "CODE" ]]; then # Code blocks may span multiple paragraphs.
+            process_block "$cur" "$block_type"
+            cur=""
+            block_type="PARAGRAPH"
+        else
+            cur="${cur}"$'\n'
+        fi
+    elif is_code_block_separator "$line"; then # Code
+        if [[ "$block_type" != "CODE" ]]; then # Start
+            process_block "$cur" "$block_type"
+            cur=""
+            block_type="CODE"
+        else # End of code block
+            process_block "$cur" "$block_type"
+            cur=""
+            block_type="PARAGRAPH"
+        fi
     elif [[ $(get_header_level "$line") != 0 ]]; then # Header
         # Flush `cur`; headers are one-line only.
         process_block "$cur" "$block_type"
@@ -177,7 +214,9 @@ while IFS= read line; do # Do not trim whitespace
             cur="${cur}"$'\n'"${line}"
         fi
     else # None of the above
-        if [[ "$block_type" = "LIST" ]]; then # Continuation of a list item on another line
+        if [[ "$block_type" = "CODE" ]]; then
+            cur="${cur}"$'\n'"${line}"
+        elif [[ "$block_type" = "LIST" ]]; then # Continuation of a list item on another line
             cur="${cur} ${line}"
         elif [[ "$block_type" != "PARAGRAPH" ]]; then # Divide between types; flush
             process_block "$cur" "$block_type"
