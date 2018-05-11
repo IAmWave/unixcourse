@@ -23,9 +23,9 @@ repeat_char() {
 }
 
 get_header_level() {
-    # Print the level of the header on this line.
+    # Print the level of the header on this line (number of leading #s)
     for i in {6..1}; do
-        if echo "$1" | grep -q $(repeat_char '#' $i); then
+        if echo "$1" | grep -q ^$(repeat_char '#' $i); then
             echo $i
             return
         fi
@@ -40,7 +40,7 @@ count_leading_chars() {
 }
 
 is_list_item() {
-    # Return 0 if the given line is a list item,
+    # Return 0 iff the given line is a list item,
     # that is, it starts with '- ' or '* ' (+ possibly leading whitespace)
     echo "$1" | grep -qP "^\s*[\-*] "
     return $?
@@ -54,7 +54,8 @@ is_code_block_separator() {
 }
 
 font_styles() {
-    # Process font styles (bold, italics, code) in a line or paragraph.
+    # Process font styles (bold, italics, code) in a line or paragraph. Markdown markup
+    # is converted into ANSI escape sequences.
     para=$1
     lines=$(echo "$para" |
         sed 's/\(*\|_\|`\|\[\)/'$'\e''\1'$'\e''/g' | # Split paragraph into \e-delimited tokens
@@ -70,34 +71,42 @@ font_styles() {
     # Read the \e-delimited string into array `tokens`
     IFS=$'\e' read -a tokens <<< "${lines}"
     res=""
-    for line in "${tokens[@]}"; do
-        if [[ -z "$line" ]]; then
-            : # Skip empty Lines
-        elif [[ "$line" = '*' ]]; then
-            (( bold = 1 - bold ))
-        elif [[ "$line" = '_' ]]; then
-            (( italics = 1 - italics ))
-        elif [[ "$line" = '`' ]]; then
-            (( code = 1 - code ))
-        elif [[ "$line" = '[' ]]; then
-            (( link = 1 - link ))
-        else
-            res+=$(printf '%s' "${s_reset}")
-            if [[ "$code" = 1 ]]; then # Code is not highlighted.
-                res+=$(printf '%s' "${s_code}");
+    for token in "${tokens[@]}"; do
+        if [[ -z "$token" ]]; then
+            continue # Skip empty lines
+        fi
+        if [[ "$code" = 1 ]]; then
+            # Code is not highlighted; special tokens like _ are printed literally
+            if [[ "$token" = '`' ]]; then
+                (( code = 1 - code ))
             else
+                res+=$(printf '%s' "${s_reset}${s_code}");
+                res+=$(printf '%s' "$token")
+            fi
+        else
+            if [[ "$token" = '*' ]]; then
+                (( bold = 1 - bold ))
+            elif [[ "$token" = '_' ]]; then
+                (( italics = 1 - italics ))
+            elif [[ "$token" = '`' ]]; then
+                (( code = 1 - code ))
+            elif [[ "$token" = '[' ]]; then
+                (( link = 1 - link ))
+            else
+                res+=$(printf '%s' "${s_reset}")
                 if [[ "$link" = 1 ]]; then res+=$(printf '%s' "${s_link}"); fi
                 if [[ "$bold" = 1 ]];    then res+=$(printf '%s' "${s_bold}"); fi
                 if [[ "$italics" = 1 ]]; then res+=$(printf '%s' "${s_italics}"); fi
+                res+=$(printf '%s' "$token")
             fi
-            res+=$(printf '%s' "${line}")
         fi
     done
     res=$(echo "$res" | tr '\t' '\n') # Put newlines back
-    echo "$res${s_reset}"
+    echo "${res}${s_reset}"
 }
 
 process_paragraph() {
+    # Format a paragraph.
     para=$(trim "$1")
     para=$(echo "$para" |
         sed 's/  */ /g' | # Join consecutive spaces into one
@@ -105,7 +114,7 @@ process_paragraph() {
     )
     # Note that `fmt` must be ran before `font_styles` because the latter
     # inserts formatting characters which are not printed but `fmt` includes
-    # them anyway, resulting in extremely short lines
+    # them in line length count, resulting in extremely short lines
     para=$(font_styles "$para")
     echo "$para"
 }
@@ -120,7 +129,7 @@ process_header() {
 
     if [[ $level != 0 ]]; then
         decoration="${s_bold}"$(repeat_char '=' $((7-level)))"${s_reset}"
-        trimmed=$(echo "$header" | sed 's/^#* *//g')
+        trimmed=$(echo "$header" | sed 's/^#* *//g; s/[\[\*_]*//g')
         echo "$decoration $trimmed $decoration"
     else
         echo "$1"
@@ -157,7 +166,7 @@ process_code_block() {
 }
 
 process_block() {
-    # Process one whole block: a PARAGRAPH/HEADER/LIST
+    # Process one whole block: a PARAGRAPH/HEADER/LIST/CODE
     block="$1"
     block_type="$2"
 
@@ -166,6 +175,7 @@ process_block() {
     fi
 
     if [[ "$block_type" = "CODE" ]]; then
+        # Do not preprocess code blocks; display them raw
         block=$(process_code_block "$block")
     else
         # Standardize
@@ -253,6 +263,7 @@ do_help=0
 show_link_targets=0
 input_file=/dev/stdin
 file_provided=0
+return_code=0
 
 while [[ -n "$1" ]]; do
     case "$1" in
@@ -269,8 +280,9 @@ while [[ -n "$1" ]]; do
             file_provided=1
         else
             ret_val=1
-            echo "More than one input file provided: $1" >&2
-            exit 1
+            do_help=1
+            printf "%s\n\n" "More than one input file provided: $1" >&2
+            return_code=1
             break
         fi
         ;;
@@ -287,7 +299,7 @@ provided, stdin is used.
   --help    print help and exit
   -l        print link targets (by default, they are omitted for clarity)
 EOF
-    exit 0
+    exit $return_code
 fi
 
 process_all
