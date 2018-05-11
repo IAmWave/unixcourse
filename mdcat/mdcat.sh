@@ -164,7 +164,7 @@ process_block() {
     if [[ -z $(trim "$block") ]]; then # Skip empty blocks
         return
     fi
-    #echo "$block_type"
+
     if [[ "$block_type" = "CODE" ]]; then
         block=$(process_code_block "$block")
     else
@@ -172,8 +172,15 @@ process_block() {
         block=$(echo "$block" | sed '
             s/*/_/g; s/__/*/g               # use a single * for bold and a single _ for italics
             s/\t/    /g                     # spaces, not tabs
-            s/\[\([^\[]*\)\]([^)]*)/\[\1\[/g    # Mark link text as [text[; remove link target
         ')
+        # Link text is marked as [text[ so that the same character starts and ends the link.
+        if [[ "$show_link_targets" = 0 ]]; then
+            block=$(echo "$block" | sed 's/\[\([^\[]*\)\]([^)]*)/\[\1\[/g')
+        else
+            # Link targets are kept and separated by a space: [ab](cd) -> [ab[ cd
+            block=$(echo "$block" | sed 's/\[\([^\[]*\)\]\(([^)]*)\)/\[\1\[ \2/g')
+        fi
+
         if [[ "$block_type" = "LIST" ]]; then
             block=$(process_list "$block")
         elif [[ "$block_type" = "HEADER" ]]; then
@@ -187,53 +194,100 @@ process_block() {
     echo ""
 }
 
-block_type="PARAGRAPH" # PARAGRAPH/HEADER/LIST/CODE
-cur=""
-while IFS= read line; do # Do not trim whitespace
-    if [[ -z "$line" ]]; then # Empty line
-        if [[ "$block_type" != "CODE" ]]; then # Code blocks may span multiple paragraphs.
-            process_block "$cur" "$block_type"
-            cur=""
-            block_type="PARAGRAPH"
-        else
-            cur="${cur}"$'\n'
-        fi
-    elif is_code_block_separator "$line"; then # Code
-        if [[ "$block_type" != "CODE" ]]; then # Start
-            process_block "$cur" "$block_type"
-            cur=""
-            block_type="CODE"
-        else # End of code block
-            process_block "$cur" "$block_type"
-            cur=""
-            block_type="PARAGRAPH"
-        fi
-    elif [[ $(get_header_level "$line") != 0 ]]; then # Header
-        # Flush `cur`; headers are one-line only.
-        process_block "$cur" "$block_type"
-        cur="${line}"
-        block_type="HEADER"
-    elif is_list_item "$line"; then # List item
-        if [[ "$block_type" != "LIST" ]]; then # There may be a paragraph block before a list
+process_all() {
+    # Main function, called after arguments have been parsed
+
+    block_type="PARAGRAPH" # PARAGRAPH/HEADER/LIST/CODE
+    cur=""
+    while IFS= read line; do # Do not trim whitespace
+        if [[ -z "$line" ]]; then # Empty line
+            if [[ "$block_type" != "CODE" ]]; then # Code blocks may span multiple paragraphs.
+                process_block "$cur" "$block_type"
+                cur=""
+                block_type="PARAGRAPH"
+            else
+                cur="${cur}"$'\n'
+            fi
+        elif is_code_block_separator "$line"; then # Code
+            if [[ "$block_type" != "CODE" ]]; then # Start
+                process_block "$cur" "$block_type"
+                cur=""
+                block_type="CODE"
+            else # End of code block
+                process_block "$cur" "$block_type"
+                cur=""
+                block_type="PARAGRAPH"
+            fi
+        elif [[ $(get_header_level "$line") != 0 ]]; then # Header
+            # Flush `cur`; headers are one-line only.
             process_block "$cur" "$block_type"
             cur="${line}"
-            block_type="LIST"
+            block_type="HEADER"
+        elif is_list_item "$line"; then # List item
+            if [[ "$block_type" != "LIST" ]]; then # There may be a paragraph block before a list
+                process_block "$cur" "$block_type"
+                cur="${line}"
+                block_type="LIST"
+            else
+                cur="${cur}"$'\n'"${line}"
+            fi
+        else # None of the above
+            if [[ "$block_type" = "CODE" ]]; then
+                cur="${cur}"$'\n'"${line}"
+            elif [[ "$block_type" = "LIST" ]]; then # Continuation of a list item on another line
+                cur="${cur} ${line}"
+            elif [[ "$block_type" != "PARAGRAPH" ]]; then # Divide between types; flush
+                process_block "$cur" "$block_type"
+                cur="${line}"
+                block_type="PARAGRAPH"
+            else # Continuation of a paragraph
+                cur="${cur} ${line}"
+            fi
+        fi
+    done < ${input_file}
+
+    process_block "$cur" "$block_type" # Process the last remaining block
+}
+
+do_help=0
+show_link_targets=0
+input_file=/dev/stdin
+file_provided=0
+
+while [[ -n "$1" ]]; do
+    case "$1" in
+    --help)
+        do_help=1
+        break
+        ;;
+    -l)
+        show_link_targets=1
+        ;;
+    *)
+        if [[ "${file_provided}" = 0 ]]; then
+            input_file="$1"
+            file_provided=1
         else
-            cur="${cur}"$'\n'"${line}"
+            ret_val=1
+            echo "More than one input file provided: $1" >&2
+            exit 1
+            break
         fi
-    else # None of the above
-        if [[ "$block_type" = "CODE" ]]; then
-            cur="${cur}"$'\n'"${line}"
-        elif [[ "$block_type" = "LIST" ]]; then # Continuation of a list item on another line
-            cur="${cur} ${line}"
-        elif [[ "$block_type" != "PARAGRAPH" ]]; then # Divide between types; flush
-            process_block "$cur" "$block_type"
-            cur="${line}"
-            block_type="PARAGRAPH"
-        else # Continuation of a paragraph
-            cur="${cur} ${line}"
-        fi
-    fi
+        ;;
+    esac
+    shift
 done
 
-process_block "$cur" "$block_type"
+if [[ "${do_help}" = 1 ]]; then
+    cat << EOF
+usage: ./mdcat.sh [-l] [--help] [INPUT_FILE]
+Pretty-print Markdown files into the terminal. If INPUT_FILE is not
+provided, stdin is used.
+
+  --help    print help and exit
+  -l        print link targets (by default, they are omitted for clarity)
+EOF
+    exit 0
+fi
+
+process_all
