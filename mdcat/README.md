@@ -1,21 +1,24 @@
 # mdcat
 
-**mdcat** je nástroj na zobrazování textové aproximace souborů v _Markdownu_.
-Je vhodný, když se chceme rychle podívat na nějaký Markdownový soubor v
-čitelné podobě a nechce se nám kvůli tomu otevírat prohlížeč.
+**mdcat** je nástroj na zobrazování textové aproximace souborů v _Markdownu_. Je vhodný, když se chceme rychle podívat na nějaký Markdownový soubor v čitelné podobě a nechce se nám kvůli tomu otevírat prohlížeč.
+
+**Příklad:**
+```
+./mdcat.sh data/react_README.md
+less data/react_README.md   # pro srovnani citelnosti
+```
 
 ## Funkce
-Zalamování dlouhých řádků (viz první odstavec)
-
-Formátování *kurzívy (jako podtržení)*, **tučného písma** a `inline kódu`
-
-### Šest
-#### Úrovní
-###### Nadpisů
-
+- zalamování dlouhých řádků _(viz první odstavec)_
 - seznamy
-- s více prvky!
-    - i vnořené
-                               - i hodně vnořené a s libovolnou indentací
-    - i _krásně_ **naformátované**
-- a mnohem více
+    - což je zde self-evident
+- styly písma
+    - **tučné**
+    - _kurzíva_ (jako podtržení)
+    - **případně _dokonce oboje_**
+    - `inline code`
+- nadpisy
+    - šest úrovní
+- [odkazy včetně _stylovaných_](www.example.com)
+    - defaultně je pro čitelnost skryta adresa, lze povolit přes `-l`
+- bloky kódu _(viz Příklad)_

@@ -1,0 +1,2 @@
+#!/bin/bash
+./mdcat.sh README.md
