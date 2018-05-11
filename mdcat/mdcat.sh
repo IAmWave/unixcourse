@@ -207,16 +207,17 @@ process_block() {
 process_all() {
     # Main function, called after arguments have been parsed
 
-    block_type="PARAGRAPH" # PARAGRAPH/HEADER/LIST/CODE
-    cur=""
-    while IFS= read line; do # Do not trim whitespace
+    block_type="PARAGRAPH"  # PARAGRAPH/HEADER/LIST/CODE
+    cur=""                  # Contents of current block so far
+
+    while IFS= read line; do # `IFS=` so that we do not trim whitespace
         if [[ -z "$line" ]]; then # Empty line
-            if [[ "$block_type" != "CODE" ]]; then # Code blocks may span multiple paragraphs.
+            if [[ "$block_type" = "CODE" ]]; then # Code blocks may span multiple paragraphs.
+                cur="${cur}"$'\n'
+            else # In other cases, paragraph end means block end
                 process_block "$cur" "$block_type"
                 cur=""
                 block_type="PARAGRAPH"
-            else
-                cur="${cur}"$'\n'
             fi
         elif is_code_block_separator "$line"; then # Code
             if [[ "$block_type" != "CODE" ]]; then # Start
